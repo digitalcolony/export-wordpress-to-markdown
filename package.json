@@ -2,10 +2,11 @@
   "name": "export-wordpress-to-markdown",
   "version": "1.0.0",
   "description": "This is a script that imports WordPress posts and their images to Markdown files.",
+  "type": "module",
   "main": "index.mjs",
   "scripts": {
     "start": "node index.mjs",
-    "lint": "eslint \"./**/*.{js,json}\""
+    "lint": "eslint \"**/*.mjs\" --fix"
   },
   "repository": {
     "type": "git",
@@ -19,11 +20,13 @@
   "homepage": "https://github.com/eiskalteschatten/export-wordpress-to-markdown#readme",
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
+    "cli-progress": "^3.12.0",
     "turndown": "^7.2.0"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
     "eslint-plugin-import": "^2.29.1",
-    "eslint-plugin-promise": "^6.2.0"
+    "eslint-plugin-promise": "^6.2.0",
+    "prettier": "^3.5.3"
   }
 }

@@ -1,18 +1,22 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import TurndownService from 'turndown';
-import * as cheerio from 'cheerio';
+import fs from "node:fs";
+import path from "node:path";
+import TurndownService from "turndown";
+import * as cheerio from "cheerio";
 
-import { downloadImage, convertEscapedAscii, stripHtml } from './utils.mjs';
+import { downloadImage, convertEscapedAscii } from "./utils.mjs";
+import { setupCleanup } from "./cleanup.mjs";
+import { fetchAuthors } from "./authors.mjs";
 
-const apiUrl = 'https://www.your-wordpress-url.com/wp-json/wp/v2/';
+setupCleanup();
 
-console.log('Exporting data from Wordpress...');
+console.log("Exporting data from Wordpress...");
 
-const dataDirectory = path.resolve(process.cwd(), 'data');
-const categoriesFile = path.resolve(dataDirectory, 'categories.json');
-const authorsDirectory = path.resolve(dataDirectory, 'authors');
-const authorsFile = path.resolve(authorsDirectory, 'authors.json');
+const apiUrl = "https://ineedcoffee.com/wp-json/wp/v2/";
+
+const dataDirectory = path.resolve(process.cwd(), "data");
+const categoriesFile = path.resolve(dataDirectory, "categories.json");
+const authorsDirectory = path.resolve(dataDirectory, "authors");
+const authorsFile = path.resolve(authorsDirectory, "authors.json");
 
 const authorsUrl = `${apiUrl}users`;
 const categoriesUrl = `${apiUrl}categories`;
@@ -23,271 +27,266 @@ const mediaUrl = `${apiUrl}media`;
 const imagesNotDownloaded = [];
 
 if (!fs.existsSync(dataDirectory)) {
-  fs.mkdirSync(dataDirectory);
-}
-
-async function fetchAuthors() {
-  console.log('Exporting authors...');
-
-  if (!fs.existsSync(authorsDirectory)) {
-    await fs.promises.mkdir(authorsDirectory);
-  }
-
-  let newAuthors = [];
-
-  if (fs.existsSync(authorsFile)) {
-    const existingAuthors = await fs.promises.readFile(authorsFile, 'utf8');
-    newAuthors = JSON.parse(existingAuthors);
-  }
-
-  const totalPagesResponse = await fetch(authorsUrl);
-  const totalPages = totalPagesResponse.headers.get('x-wp-totalpages');
-
-  const importData = async page => {
-    const response = await fetch(`${authorsUrl}?page=${page}`);
-    const authors = await response.json();
-
-    for (const author of authors) {
-      console.log('Exporting author:', author.name);
-
-      const existingAuthorIndex = newAuthors.findIndex(existingAuthor => existingAuthor.id === author.slug);
-
-      if (existingAuthorIndex > -1) {
-        console.log(`Author "${author.slug}" already exists, skipping...`);
-        newAuthors[existingAuthorIndex].wordpressId = author.id;
-        continue;
-      }
-
-      const extention = path.extname(author.avatar_urls[96]).split('&')[0];
-      const avatarFile = `${author.slug}${extention}`;
-      const avatarFilePath = path.resolve(authorsDirectory, avatarFile);
-      const imageDownloaded = await downloadImage(author.avatar_urls[96], avatarFilePath);
-
-      if (!imageDownloaded) {
-        imagesNotDownloaded.push(author.avatar_urls[96]);
-      }
-
-      newAuthors.push({
-        id: author.slug,
-        name: author.name,
-        bio: author.description,
-        website: author.url,
-        ...imageDownloaded && {
-          avatar: `/images/authors/${avatarFile}`,
-        },
-        wordpressId: author.id,
-      });
-    }
-  };
-
-  for (let page = 1; page <= totalPages; page++) {
-    await importData(page);
-  }
-
-  await fs.promises.writeFile(authorsFile, JSON.stringify(newAuthors, null, 2));
+	fs.mkdirSync(dataDirectory);
 }
 
 async function fetchCategories() {
-  console.log('Exporting categories...');
+	console.log("Exporting categories...");
 
-  let newCategories = [];
+	let newCategories = [];
 
-  if (fs.existsSync(categoriesFile)) {
-    const existingCategories = await fs.promises.readFile(categoriesFile, 'utf8');
-    newCategories = JSON.parse(existingCategories);
-  }
+	if (fs.existsSync(categoriesFile)) {
+		const existingCategories = await fs.promises.readFile(categoriesFile, "utf8");
+		newCategories = JSON.parse(existingCategories);
+	}
 
-  const totalPagesResponse = await fetch(categoriesUrl);
-  const totalPages = totalPagesResponse.headers.get('x-wp-totalpages');
+	const totalPagesResponse = await fetch(categoriesUrl);
+	const totalPages = totalPagesResponse.headers.get("x-wp-totalpages");
 
-  const importData = async page => {
-    const response = await fetch(`${categoriesUrl}?page=${page}`);
-    const categories = await response.json();
+	const importData = async (page) => {
+		const response = await fetch(`${categoriesUrl}?page=${page}`);
+		const categories = await response.json();
 
-    for (const category of categories) {
-      if (category.count === 0) {
-        continue;
-      }
+		for (const category of categories) {
+			if (category.count === 0) {
+				continue;
+			}
 
-      console.log('Exporting category:', category.name);
+			console.log("Exporting category:", category.name);
 
-      const existingCategoryIndex = newCategories.findIndex(existingCategory => existingCategory.id === category.slug);
+			const existingCategoryIndex = newCategories.findIndex(
+				(existingCategory) => existingCategory.id === category.slug
+			);
 
-      if (existingCategoryIndex > -1) {
-        console.log(`Category "${category.slug}" already exists, skipping...`);
-        newCategories[existingCategoryIndex].wordpressId = category.id;
-        continue;
-      }
+			if (existingCategoryIndex > -1) {
+				console.log(`Category "${category.slug}" already exists, skipping...`);
+				newCategories[existingCategoryIndex].wordpressId = category.id;
+				continue;
+			}
 
-      newCategories.push({
-        id: category.slug,
-        name: category.name,
-        description: category.description,
-        wordpressId: category.id,
-      });
-    }
-  };
+			newCategories.push({
+				id: category.slug,
+				name: category.name,
+				description: category.description,
+				wordpressId: category.id
+			});
+		}
+	};
 
-  for (let page = 1; page <= totalPages; page++) {
-    await importData(page);
-  }
+	for (let page = 1; page <= totalPages; page++) {
+		await importData(page);
+	}
 
-  await fs.promises.writeFile(categoriesFile, JSON.stringify(newCategories, null, 2));
+	await fs.promises.writeFile(categoriesFile, JSON.stringify(newCategories, null, 2));
 }
 
 async function fetchPosts() {
-  console.log('Exporting posts...');
+	console.log("Exporting posts...");
 
-  const totalPagesResponse = await fetch(postsUrl);
-  const totalPages = totalPagesResponse.headers.get('x-wp-totalpages');
+	try {
+		//const totalPagesResponse = await fetch(postsUrl);
+		//const totalPages = totalPagesResponse.headers.get("x-wp-totalpages");
 
-  const authorsFileContent = await fs.promises.readFile(authorsFile, 'utf8');
-  const authors = JSON.parse(authorsFileContent);
+		// Validate authors file exists
+		if (!fs.existsSync(authorsFile)) {
+			throw new Error("Authors file not found. Please run fetchAuthors first.");
+		}
 
-  const categoriesFileContent = await fs.promises.readFile(categoriesFile, 'utf8');
-  const categories = JSON.parse(categoriesFileContent);
+		const authorsFileContent = await fs.promises.readFile(authorsFile, "utf8");
+		const authors = JSON.parse(authorsFileContent);
 
-  const downloadPostImage = async (src, pathToPostFolder) => {
-    if (!src || !pathToPostFolder) {
-      return;
-    }
+		// Validate categories file exists
+		if (!fs.existsSync(categoriesFile)) {
+			throw new Error("Categories file not found. Please run fetchCategories first.");
+		}
 
-    const fileName = path.basename(src).split('?')[0];
-    const destinationFile = path.resolve(pathToPostFolder, fileName);
+		const categoriesFileContent = await fs.promises.readFile(categoriesFile, "utf8");
+		const categories = JSON.parse(categoriesFileContent);
 
-    if (fs.existsSync(destinationFile)) {
-      console.log(`Post image "${destinationFile}" already exists, skipping...`);
-      return fileName;
-    }
+		const downloadPostImage = async (src, pathToPostFolder) => {
+			if (!src || !pathToPostFolder) {
+				return;
+			}
 
-    const imageDownloaded = await downloadImage(src, destinationFile);
+			const fileName = path.basename(src).split("?")[0];
+			const destinationFile = path.resolve(pathToPostFolder, fileName);
 
-    if (!imageDownloaded) {
-      imagesNotDownloaded.push(src);
-    }
+			if (fs.existsSync(destinationFile)) {
+				console.log(`Post image "${destinationFile}" already exists, skipping...`);
+				return fileName;
+			}
 
-    return imageDownloaded ? fileName : undefined;
-  };
+			const imageDownloaded = await downloadImage(src, destinationFile);
 
-  const cleanUpHtml = html => {
-    const $ = cheerio.load(html);
+			if (!imageDownloaded) {
+				imagesNotDownloaded.push(src);
+			}
 
-    const figures = $('figure');
-    for (const figure of figures) {
-      $(figure).removeAttr('class');
-    }
+			return imageDownloaded ? fileName : undefined;
+		};
 
-    const images = $('img');
-    for (const image of images) {
-      $(image).removeAttr('class width height data-recalc-dims sizes srcset');
-    }
+		const cleanUpHtml = (html) => {
+			const $ = cheerio.load(html);
 
-    const captions = $('figcaption');
-    for (const caption of captions) {
-      $(caption).removeAttr('class');
-    }
+			const figures = $("figure");
+			for (const figure of figures) {
+				$(figure).removeAttr("class");
+			}
 
-    $('.wp-polls').html('<em>Polls have been temporarily removed while we migrate to a new platform.</em>');
-    $('.wp-polls-loading').remove();
+			const images = $("img");
+			for (const image of images) {
+				$(image).removeAttr("class width height data-recalc-dims sizes srcset");
+			}
 
-    return $.html();
-  };
+			const captions = $("figcaption");
+			for (const caption of captions) {
+				$(caption).removeAttr("class");
+			}
 
-  const downloadAndUpdateImages = async (html, pathToPostFolder) => {
-    const $ = cheerio.load(html);
-    const images = $('img');
+			$(".wp-polls").html(
+				"<em>Polls have been temporarily removed while we migrate to a new platform.</em>"
+			);
+			$(".wp-polls-loading").remove();
 
-    for (const image of images) {
-      const src = $(image).attr('src');
-      const newSrc = await downloadPostImage(src, pathToPostFolder);
-      $(image).attr('src', newSrc);
-    }
+			return $.html();
+		};
 
-    return $.html();
-  };
+		const downloadAndUpdateImages = async (html, pathToPostFolder) => {
+			const $ = cheerio.load(html);
+			const images = $("img");
 
-  const importData = async page => {
-    const response = await fetch(`${postsUrl}?page=${page}`);
-    const posts = await response.json();
+			for (const image of images) {
+				const src = $(image).attr("src");
+				const newSrc = await downloadPostImage(src, pathToPostFolder);
+				$(image).attr("src", newSrc);
+			}
 
-    for (const post of posts) {
-      const postTitle = convertEscapedAscii(post.title.rendered);
+			return $.html();
+		};
 
-      console.log('Exporting post:', postTitle);
+		const importData = async (page) => {
+			const response = await fetch(`${postsUrl}?page=${page}`);
+			const posts = await response.json();
 
-      const pathToPostFolder = path.resolve(dataDirectory, 'posts', post.slug);
+			// Limit to first 5 posts for testing
+			const limitedPosts = posts.slice(0, 5);
 
-      if (!fs.existsSync(pathToPostFolder)) {
-        await fs.promises.mkdir(pathToPostFolder, { recursive: true });
-      }
+			for (const post of limitedPosts) {
+				const postTitle = convertEscapedAscii(post.title.rendered);
+				console.log("\nExporting post:", postTitle);
 
-      const postAuthor = authors.find(author => post.author === author.wordpressId);
-      const postCategories = categories.filter(category => post.categories.includes(category.wordpressId));
+				let postAuthor = authors.find(
+					(author) => Number(author.wordpressId) === Number(post.author)
+				);
 
-      const titleImageId = post.featured_media;
-      const titleImageResponse = await fetch(`${mediaUrl}/${titleImageId}`);
-      const titleImageJson = await titleImageResponse.json();
-      const titleImage = await downloadPostImage(titleImageJson.source_url, pathToPostFolder);
+				if (!postAuthor) {
+					console.warn(
+						`Warning: Author not found for post "${postTitle}" (ID: ${post.author})`
+					);
+					postAuthor = { name: "Unknown Author" };
+				}
 
-      const tags = [];
+				const pathToPostFolder = path.resolve(dataDirectory, "posts", post.slug);
 
-      for (const tag of post.tags) {
-        const tagId = await fetchTag(tag);
-        tags.push(tagId);
-      }
+				if (!fs.existsSync(pathToPostFolder)) {
+					await fs.promises.mkdir(pathToPostFolder, { recursive: true });
+				}
 
-      const metaData = {
-        id: post.slug,
-        title: postTitle,
-        status: post.status === 'publish' ? 'published' : 'draft',
-        authors: [postAuthor.id],
-        titleImage,
-        excerpt: stripHtml(post.excerpt.rendered),
-        categories: postCategories.map(category => category.id),
-        tags,
-        publishedDate: post.date,
-        updatedAt: post.modified,
-        wordpressId: post.id,
-      };
+				const postCategories = categories.filter((category) =>
+					post.categories.includes(category.wordpressId)
+				);
 
-      const metaDataFile = path.resolve(pathToPostFolder, 'meta.json');
-      await fs.promises.writeFile(metaDataFile, JSON.stringify(metaData, null, 2));
+				const titleImageId = post.featured_media;
+				const titleImageResponse = await fetch(`${mediaUrl}/${titleImageId}`);
+				const titleImageJson = await titleImageResponse.json();
+				const titleImage = await downloadPostImage(
+					titleImageJson.source_url,
+					pathToPostFolder
+				);
 
-      const cleanedContent = cleanUpHtml(post.content.rendered);
-      const htmlWithImages = await downloadAndUpdateImages(cleanedContent, pathToPostFolder);
+				const tags = [];
 
-      const turndownService = new TurndownService({
-        bulletListMarker: '-',
-        codeBlockStyle: 'fenced',
-        emDelimiter: '*',
-      });
+				for (const tag of post.tags) {
+					const tagId = await fetchTag(tag);
+					tags.push(tagId);
+				}
 
-      turndownService.keep(['figure', 'figcaption']);
+				const cleanedContent = cleanUpHtml(post.content.rendered);
+				const htmlWithImages = await downloadAndUpdateImages(
+					cleanedContent,
+					pathToPostFolder
+				);
 
-      const content = turndownService.turndown(htmlWithImages);
-      const contentFile = path.resolve(pathToPostFolder, 'index.md');
-      await fs.promises.writeFile(contentFile, content);
-    }
-  };
+				const turndownService = new TurndownService({
+					bulletListMarker: "-",
+					codeBlockStyle: "fenced",
+					emDelimiter: "*"
+				});
 
-  for (let page = 1; page <= totalPages; page++) {
-    await importData(page);
-  }
+				turndownService.keep(["figure", "figcaption"]);
+
+				const content = turndownService.turndown(htmlWithImages);
+
+				// Create frontmatter content
+				const frontmatter = {
+					id: post.slug,
+					title: postTitle,
+					status: post.status === "publish" ? "published" : "draft",
+					author: postAuthor.name,
+					titleImage,
+					category: postCategories.length > 0 ? postCategories[0].id : null,
+					publishedDate: post.date,
+					updatedAt: post.modified,
+					wordpressId: post.id
+				};
+
+				// Convert frontmatter to YAML format
+				const yamlFrontmatter =
+					"---\n" +
+					Object.entries(frontmatter)
+						.map(([key, value]) => {
+							if (Array.isArray(value)) {
+								return `${key}:\n${value.map((item) => `  - ${item}`).join("\n")}`;
+							}
+							return `${key}: ${typeof value === "string" ? `"${value}"` : value}`;
+						})
+						.join("\n") +
+					"\n---\n\n";
+
+				// Combine frontmatter with content
+				const contentFile = path.resolve(pathToPostFolder, "index.md");
+				await fs.promises.writeFile(contentFile, yamlFrontmatter + content);
+			}
+		};
+
+		for (let page = 1; page <= 1; page++) {
+			// Changed from totalPages to 1
+			await importData(page);
+		}
+	} catch (error) {
+		console.error("Error in fetchPosts:", error.message);
+		throw error;
+	}
 }
 
 async function fetchTag(tagId) {
-  const response = await fetch(`${tagsUrl}/${tagId}`);
-  const tag = await response.json();
-  return tag.name;
+	const response = await fetch(`${tagsUrl}/${tagId}`);
+	const tag = await response.json();
+	return tag.name;
 }
 
-await fetchAuthors();
-await fetchCategories();
-await fetchPosts();
+try {
+	await fetchAuthors();
+	await fetchCategories();
+	await fetchPosts();
 
-if (imagesNotDownloaded.length > 0) {
-  console.log('The following images could not be downloaded:');
-  console.log(JSON.stringify(imagesNotDownloaded, null, 2));
+	if (imagesNotDownloaded.length > 0) {
+		console.log("The following images could not be downloaded:");
+		console.log(JSON.stringify(imagesNotDownloaded, null, 2));
+	}
+
+	console.log("Data successfully exported from Wordpress!");
+} catch (error) {
+	console.error("Export failed:", error);
+	process.exit(1);
 }
-
-console.log('Data successfully exported from Wordpress!');

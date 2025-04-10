@@ -48,5 +48,4 @@ See the original author's blog post about this script for more details about the
 
 ## Credits
 
-Original script by [Alex Seifert](https://www.alexseifert.com)  
-Frontmatter additions by [Your Name]
+Original script by [Alex Seifert](https://www.alexseifert.com)

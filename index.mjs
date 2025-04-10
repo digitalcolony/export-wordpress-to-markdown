@@ -6,23 +6,22 @@ import * as cheerio from "cheerio";
 import { downloadImage, convertEscapedAscii } from "./utils.mjs";
 import { setupCleanup } from "./cleanup.mjs";
 import { fetchAuthors } from "./authors.mjs";
+import { config } from "./config.mjs";
 
 setupCleanup();
 
 console.log("Exporting data from Wordpress...");
-
-const apiUrl = "https://ineedcoffee.com/wp-json/wp/v2/";
 
 const dataDirectory = path.resolve(process.cwd(), "data");
 const categoriesFile = path.resolve(dataDirectory, "categories.json");
 const authorsDirectory = path.resolve(dataDirectory, "authors");
 const authorsFile = path.resolve(authorsDirectory, "authors.json");
 
-const authorsUrl = `${apiUrl}users`;
-const categoriesUrl = `${apiUrl}categories`;
-const postsUrl = `${apiUrl}posts`;
-const tagsUrl = `${apiUrl}tags`;
-const mediaUrl = `${apiUrl}media`;
+const authorsUrl = `${config.apiUrl}users`;
+const categoriesUrl = `${config.apiUrl}categories`;
+const postsUrl = `${config.apiUrl}posts`;
+const tagsUrl = `${config.apiUrl}tags`;
+const mediaUrl = `${config.apiUrl}media`;
 
 const imagesNotDownloaded = [];
 

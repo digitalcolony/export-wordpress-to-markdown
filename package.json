@@ -20,7 +20,6 @@
   "homepage": "https://github.com/eiskalteschatten/export-wordpress-to-markdown#readme",
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
-    "cli-progress": "^3.12.0",
     "turndown": "^7.2.0"
   },
   "devDependencies": {

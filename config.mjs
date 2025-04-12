@@ -1,7 +1,8 @@
 export const config = {
-	apiUrl: "https://ineedcoffee.com/wp-json/wp/v2/",
+	apiUrl: "https://example.com/wp-json/wp/v2/", // Replace with your WordPress API URL
 	dataDirectory: "data",
-	postsLimit: 5,
+	postsLimit: 0, // set to 0 for all posts
+	showTags: false, // set to true to include tags in frontmatter
 	turndownOptions: {
 		bulletListMarker: "-",
 		codeBlockStyle: "fenced",

@@ -8,27 +8,35 @@ import { setupCleanup } from "./cleanup.mjs";
 import { fetchAuthors } from "./authors.mjs";
 import { config } from "./config.mjs";
 
+// Initialize cleanup handlers for graceful shutdown
 setupCleanup();
 
 console.log("Exporting data from Wordpress...");
 
+// Configure paths for data storage
 const dataDirectory = path.resolve(process.cwd(), "data");
 const categoriesFile = path.resolve(dataDirectory, "categories.json");
 const authorsDirectory = path.resolve(dataDirectory, "authors");
 const authorsFile = path.resolve(authorsDirectory, "authors.json");
 
-const authorsUrl = `${config.apiUrl}users`;
+// WordPress REST API endpoints
 const categoriesUrl = `${config.apiUrl}categories`;
 const postsUrl = `${config.apiUrl}posts`;
 const tagsUrl = `${config.apiUrl}tags`;
 const mediaUrl = `${config.apiUrl}media`;
 
+// Track failed image downloads
 const imagesNotDownloaded = [];
 
+// Create data directory if it doesn't exist
 if (!fs.existsSync(dataDirectory)) {
 	fs.mkdirSync(dataDirectory);
 }
 
+/**
+ * Fetches all categories from WordPress and saves them to JSON
+ * Skips categories with no posts
+ */
 async function fetchCategories() {
 	console.log("Exporting categories...");
 
@@ -79,13 +87,19 @@ async function fetchCategories() {
 	await fs.promises.writeFile(categoriesFile, JSON.stringify(newCategories, null, 2));
 }
 
+/**
+ * Downloads and processes posts from WordPress
+ * - Fetches all posts using pagination
+ * - Downloads associated images
+ * - Converts HTML to Markdown
+ * - Creates frontmatter
+ * - Saves posts as Markdown files
+ */
 async function fetchPosts() {
 	console.log("Exporting posts...");
+	let totalExportedPosts = 0;
 
 	try {
-		//const totalPagesResponse = await fetch(postsUrl);
-		//const totalPages = totalPagesResponse.headers.get("x-wp-totalpages");
-
 		// Validate authors file exists
 		if (!fs.existsSync(authorsFile)) {
 			throw new Error("Authors file not found. Please run fetchAuthors first.");
@@ -102,6 +116,12 @@ async function fetchPosts() {
 		const categoriesFileContent = await fs.promises.readFile(categoriesFile, "utf8");
 		const categories = JSON.parse(categoriesFileContent);
 
+		/**
+		 * Downloads a single image for a post
+		 * @param {string} src - Image URL
+		 * @param {string} pathToPostFolder - Destination folder
+		 * @returns {string|undefined} Filename if successful, undefined if failed
+		 */
 		const downloadPostImage = async (src, pathToPostFolder) => {
 			if (!src || !pathToPostFolder) {
 				return;
@@ -111,7 +131,7 @@ async function fetchPosts() {
 			const destinationFile = path.resolve(pathToPostFolder, fileName);
 
 			if (fs.existsSync(destinationFile)) {
-				console.log(`Post image "${destinationFile}" already exists, skipping...`);
+				//console.log(`Post image "${destinationFile}" already exists, skipping...`);
 				return fileName;
 			}
 
@@ -124,6 +144,13 @@ async function fetchPosts() {
 			return imageDownloaded ? fileName : undefined;
 		};
 
+		/**
+		 * Cleans up HTML content
+		 * - Removes unnecessary attributes
+		 * - Handles special elements like polls
+		 * @param {string} html - Raw HTML content
+		 * @returns {string} Cleaned HTML
+		 */
 		const cleanUpHtml = (html) => {
 			const $ = cheerio.load(html);
 
@@ -150,6 +177,12 @@ async function fetchPosts() {
 			return $.html();
 		};
 
+		/**
+		 * Downloads images in post content and updates src attributes
+		 * @param {string} html - Post HTML content
+		 * @param {string} pathToPostFolder - Folder to save images
+		 * @returns {string} HTML with updated image paths
+		 */
 		const downloadAndUpdateImages = async (html, pathToPostFolder) => {
 			const $ = cheerio.load(html);
 			const images = $("img");
@@ -163,16 +196,22 @@ async function fetchPosts() {
 			return $.html();
 		};
 
+		/**
+		 * Processes a batch of posts
+		 * @param {number} page - Page number to fetch
+		 */
 		const importData = async (page) => {
-			const response = await fetch(`${postsUrl}?page=${page}`);
+			const perPage = 100;
+			const response = await fetch(`${postsUrl}?page=${page}&per_page=${perPage}`);
 			const posts = await response.json();
 
-			// Limit to first 5 posts for testing
-			const limitedPosts = posts.slice(0, 5);
+			// Use postsLimit from config
+			const limitedPosts = config.postsLimit ? posts.slice(0, config.postsLimit) : posts;
+			totalExportedPosts += limitedPosts.length;
 
 			for (const post of limitedPosts) {
 				const postTitle = convertEscapedAscii(post.title.rendered);
-				console.log("\nExporting post:", postTitle);
+				console.log("Exporting post:", postTitle);
 
 				let postAuthor = authors.find(
 					(author) => Number(author.wordpressId) === Number(post.author)
@@ -227,17 +266,27 @@ async function fetchPosts() {
 				const content = turndownService.turndown(htmlWithImages);
 
 				// Create frontmatter content
+				// modified to only display the first category
+				// if you want all categories, use the following line:
+				// categories: postCategories.map(category => category.id),
 				const frontmatter = {
 					id: post.slug,
 					title: postTitle,
 					status: post.status === "publish" ? "published" : "draft",
 					author: postAuthor.name,
+					authorSlug: postAuthor.id,
 					titleImage,
-					category: postCategories.length > 0 ? postCategories[0].id : null,
+					categorySlug: postCategories.length > 0 ? postCategories[0].id : null,
+					category: postCategories.length > 0 ? postCategories[0].name : null,
 					publishedDate: post.date,
 					updatedAt: post.modified,
 					wordpressId: post.id
 				};
+
+				// Only add tags if showTags is true
+				if (config.showTags) {
+					frontmatter.tags = tags;
+				}
 
 				// Convert frontmatter to YAML format
 				const yamlFrontmatter =
@@ -258,27 +307,42 @@ async function fetchPosts() {
 			}
 		};
 
-		for (let page = 1; page <= 1; page++) {
-			// Changed from totalPages to 1
+		// Fetch total number of pages
+		const totalPagesResponse = await fetch(`${postsUrl}?per_page=100`);
+		const totalPages = parseInt(totalPagesResponse.headers.get("x-wp-totalpages"), 10);
+		console.log(`Found ${totalPages} pages of posts`);
+
+		// Process all pages
+		for (let page = 1; page <= totalPages; page++) {
+			console.log(`Fetching posts page ${page}/${totalPages}`);
 			await importData(page);
 		}
+
+		console.log(`Successfully exported ${totalExportedPosts} posts`);
 	} catch (error) {
 		console.error("Error in fetchPosts:", error.message);
 		throw error;
 	}
 }
 
+/**
+ * Fetches a tag by ID and returns its name
+ * @param {number} tagId - WordPress tag ID
+ * @returns {Promise<string>} Tag name
+ */
 async function fetchTag(tagId) {
 	const response = await fetch(`${tagsUrl}/${tagId}`);
 	const tag = await response.json();
 	return tag.name;
 }
 
+// Main execution
 try {
 	await fetchAuthors();
 	await fetchCategories();
 	await fetchPosts();
 
+	// Report any failed image downloads
 	if (imagesNotDownloaded.length > 0) {
 		console.log("The following images could not be downloaded:");
 		console.log(JSON.stringify(imagesNotDownloaded, null, 2));
